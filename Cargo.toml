@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+anyhow = "1.0.71"
 chrono = "0.4.26"
 rust-crypto = "0.2.36"
 serde = { version = "1.0.164", features = ["serde_derive"] }

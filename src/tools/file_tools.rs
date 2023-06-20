@@ -7,7 +7,7 @@ pub fn lib_name_to_path(name: String) -> String {
     let classifier = parts[3];
     let filename = format!("{}-{}-{}.jar", artifact_id, version, classifier);
     let mut path = PathBuf::new();
-    path.push(parts[0]);
+    path.push(parts[0].replace(".", "/"));
     path.push(artifact_id);
     path.push(version);
     path.push(filename);

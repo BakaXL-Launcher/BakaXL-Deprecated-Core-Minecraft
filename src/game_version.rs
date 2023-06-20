@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+use std::fmt::format;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::ptr::null;
@@ -9,7 +11,9 @@ use zip::read::ZipArchive;
 
 use crate::json::json_version::{JsonAdvanceArgument, JsonLibrary};
 use crate::tools::file_tools::lib_name_to_path;
+use crate::tools::string_tools::replace_variables;
 use crate::tools::system_tools;
+use crate::users::user_types::UserResult;
 use crate::{json::{json_version::JsonVersion, self}, launcher_core::LauncherCore};
 
 pub struct GameVersion {
@@ -49,10 +53,31 @@ impl GameVersion {
     pub fn get_libraries_and_natives(self) -> Libraries {
         let mut libs: Vec<JsonLibrary> = vec![];
         let mut natives: Vec<JsonLibrary> = vec![];
-        let libraries_json = self.version_json.libraries.unwrap();
+        let libraries_json = self.version_json.clone().libraries.unwrap();
         for lib in libraries_json {
             if lib.name.contains("natives") {
-                natives.push(lib)
+                if lib.rules.is_some() {
+                    let mut lib_support_system = false;
+                    for rule in lib.clone().rules.unwrap() {
+                        if rule.os.is_none() && rule.action == "allow" {
+                            // 可能支持所有系统，但是有例外系统
+                            lib_support_system = true;
+                            continue;
+                        }
+                        if rule.os.is_some() {
+                            if rule.os.clone().unwrap().name.unwrap() == OS {
+                                if rule.action == "allow" {
+                                    natives.push(lib.clone())
+                                } else if lib_support_system == true && rule.os.clone().unwrap().name.unwrap() == OS {
+                                    // 在之前allow没指定系统的时候，如果该条rule不是allow的系统将不会添加进去
+                                } else {
+                                    natives.push(lib.clone())
+
+                                }
+                            }
+                        }
+                    }
+                }
             } else {
                 libs.push(lib)
             }
@@ -87,7 +112,6 @@ impl GameVersion {
                                 if rule.os.clone().unwrap().arch.is_some() && rule.os.clone().unwrap().arch.unwrap() != system_tools::arch() {
                                     continue;
                                 }
-
                                 match &advance_argument.value {
                                     Value::String(s) => {
                                         argument_str.push(s.to_string())
@@ -97,16 +121,12 @@ impl GameVersion {
                                             argument_str.push(arg.to_string())
                                         }
                                     }
-                                    _ => {
-                                        
-                                    }
+                                    _ => { }
                                 }
                             }
                         }
                     }
-                    _ => {
-                        
-                    }
+                    _ => { }
                     
                 }
             }
@@ -134,9 +154,7 @@ impl GameVersion {
                             }
                         }
                     }
-                    _ => {
-                        
-                    }
+                    _ => { }
                     
                 }
             }
@@ -144,7 +162,7 @@ impl GameVersion {
         }
     }
 
-    pub fn launch(self) -> String {
+    pub fn launch(self, user: UserResult) -> String {
         let mut cp_str: String = String::default();
         let assets_path = self.launcher_core.assets_path.clone();
         let natives_path = format!("{}/natives-{}", self.path.clone(), OS);
@@ -166,10 +184,8 @@ impl GameVersion {
                 let output_path = Path::new(&natives_path).join(&file_path);
         
                 if (&*file.name()).ends_with('/') {
-                    // 创建目录
                     std::fs::create_dir_all(&output_path).expect("Failed to create directory");
                 } else {
-                    // 创建文件
                     if let Some(parent_dir) = output_path.parent() {
                         std::fs::create_dir_all(&parent_dir).expect("Failed to create parent directory");
                     }
@@ -180,9 +196,62 @@ impl GameVersion {
             }
         }
 
-        cp_str
+        let mut argument = self.get_arguments();
 
+        let mut variables: HashMap<&str, String> = HashMap::new();
+        variables.insert("classpath", cp_str);
+        variables.insert("natives_directory", natives_path);
+        variables.insert("launcher_name", "BakaXL".to_owned());
+        variables.insert("launcher_version", "4.0".to_owned());
+        variables.insert("version_name", self.id);
+        variables.insert("game_directory", self.launcher_core.base_path);
+        variables.insert("assets_root", format!("{}/assets", self.launcher_core.assets_path));
+        variables.insert("assets_index_name", self.version_json.asset_index.unwrap().id);
+        variables.insert("resolution_width", "1000".to_owned());
+        variables.insert("resolution_height", "900".to_owned());
+        variables.insert(
+            "auth_player_name", 
+            match &user {
+                UserResult::Developer { username, .. } => username.to_string(),
+                UserResult::Microsoft {  } => todo!(),
+                UserResult::CustomAuth {  } => todo!(),
+            }
+        );
+        variables.insert(
+            "auth_uuid", 
+            match &user {
+                UserResult::Developer { uuid, .. } => uuid.to_string(),
+                UserResult::Microsoft {  } => todo!(),
+                UserResult::CustomAuth {  } => todo!(),
+            }
+        );
+        variables.insert(
+            "auth_access_token", 
+            match &user {
+                UserResult::Developer { .. } => "".to_owned(),
+                UserResult::Microsoft {  } => todo!(),
+                UserResult::CustomAuth {  } => todo!(),
+            }
+        );
+        variables.insert(
+            "auth_xuid", 
+            match &user {
+                UserResult::Developer { .. } => "".to_owned(),
+                UserResult::Microsoft {  } => todo!(),
+                UserResult::CustomAuth {  } => todo!(),
+            }
+        );
+        variables.insert(
+            "user_type", 
+            match user {
+                UserResult::Developer { .. } => "Legacy".to_owned(),
+                UserResult::Microsoft {  } => "msa".to_owned(),
+                UserResult::CustomAuth {  } => "Mojang".to_owned(),
+            }
+        );
         
+        let replace_arg = replace_variables(&argument.join(" "), &variables);
+        replace_arg
         /*
         let command = match OS {
             "windows" => {
