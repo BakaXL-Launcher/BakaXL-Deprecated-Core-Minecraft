@@ -14,7 +14,7 @@ impl LauncherCore {
     /// 手动设置资源文件（包括libraries）的路径
     /// 
     /// 该方法可以让所有mc游戏共用同一个资源文件
-    pub fn set_assets_path(&mut self, path: String) {
+    pub fn set_assets_path(mut self, path: String) {
         self.assets_path = path;
     }
 }
