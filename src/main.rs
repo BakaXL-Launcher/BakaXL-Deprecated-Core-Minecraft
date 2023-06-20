@@ -13,8 +13,10 @@ fn main() {
     println!("{}", test1.name());
     let test2 = uuid_from_name("test".to_owned());
     println!("{}", test2.as_str());
-    let core: LauncherCore = LauncherCore::new("I:/Minecraft/.minecraft".to_owned());
-    let test3 = GameVersion::load(core, "1.19.4".to_owned());
-    println!("{}", test3.asset_index.unwrap().url)
+    let core: LauncherCore = LauncherCore::new("C:/mc/.minecraft".to_owned());
+    let test3 = GameVersion::load(core, "1.19.2".to_owned());
+    println!("{}", test3.version_json.id);
+    println!("{}", test3.get_arguments().join(" "))
+    
 }
 

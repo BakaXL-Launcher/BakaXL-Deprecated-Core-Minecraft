@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -16,7 +17,9 @@ pub struct JsonVersion {
     #[serde(rename = "type")]
     pub type_: Option<String>,
     #[serde(rename = "minecraftArguments")]
-    pub arguments: Option<String>,
+    pub arguments_old: Option<String>,
+    #[serde(rename = "arguments")]
+    pub arguments: Option<JsonArguments>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(rename = "minimumLauncherVersion")]
     pub minimum_launcher_version: Option<f64>,
@@ -73,6 +76,18 @@ impl JsonVersion {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct JsonArguments {
+    pub game: Option<Vec<Value>>,
+    pub jvm: Option<Vec<Value>>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct JsonAdvanceArgument {
+    pub rules: Option<Vec<JsonRule>>,
+    pub value: Value,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct JsonAssetsIndex {
     pub id: String,
     pub sha1: String,
@@ -114,7 +129,9 @@ pub struct JsonRule {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct JsonOperatingSystem {
-    pub name: String,
+    pub name: Option<String>,
+    pub arch: Option<String>,
+    pub version: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
