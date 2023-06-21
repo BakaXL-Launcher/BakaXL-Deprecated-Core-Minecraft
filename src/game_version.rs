@@ -50,12 +50,12 @@ impl GameVersion {
     }
 
 
-    pub fn get_libraries_and_natives(self) -> Libraries {
+    pub fn get_libraries_and_natives(&self) -> Libraries {
         let mut libs: Vec<JsonLibrary> = vec![];
         let mut natives: Vec<JsonLibrary> = vec![];
         let libraries_json = self.version_json.clone().libraries.unwrap();
         for lib in libraries_json {
-            if lib.name.contains("natives") {
+            if lib.name.contains("natives") || lib.natives.is_some() {
                 if lib.rules.is_some() {
                     let mut lib_support_system = false;
                     for rule in lib.clone().rules.unwrap() {
@@ -66,20 +66,22 @@ impl GameVersion {
                         }
                         if rule.os.is_some() {
                             if rule.os.clone().unwrap().name.unwrap() == OS {
-                                if rule.action == "allow" {
-                                    natives.push(lib.clone())
-                                } else if lib_support_system == true && rule.os.clone().unwrap().name.unwrap() == OS {
-                                    // 在之前allow没指定系统的时候，如果该条rule不是allow的系统将不会添加进去
-                                } else {
-                                    natives.push(lib.clone())
-
-                                }
+                                if rule.action != "allow" {
+                                    if lib_support_system == true && rule.os.clone().unwrap().name.unwrap() == OS {
+                                        lib_support_system = false;
+                                    }
+                                }                                
                             }
                         }
                     }
+                    if lib_support_system == true {
+                        natives.push(lib.clone());
+                    }
+                } else {
+                    natives.push(lib.clone());
                 }
             } else {
-                libs.push(lib)
+                libs.push(lib);
             }
         }
         Libraries { libs, natives }
@@ -87,13 +89,14 @@ impl GameVersion {
 
 
     /// 获取未替换变量的启动参数，兼容以前版本的json参数`minecraftArguments`
-    pub fn get_arguments(self) -> Vec<String> {
-        let argument_old = self.version_json.arguments_old.unwrap_or_default();
+    pub fn get_arguments(&self) -> Vec<String> {
+        let version_json = self.version_json.clone();
+        let argument_old = version_json.arguments_old.unwrap_or_default();
         if !argument_old.is_empty() {
             vec![argument_old]
         } else {
             let mut argument_str: Vec<String> = vec![];
-            for jvm_argument in self.version_json.arguments.clone().unwrap().jvm.unwrap() {
+            for jvm_argument in version_json.arguments.clone().unwrap().jvm.unwrap() {
                 match jvm_argument {
                     Value::String(s) => {
                         argument_str.push(s)
@@ -131,7 +134,10 @@ impl GameVersion {
                 }
             }
 
-            for game_argument in self.version_json.arguments.clone().unwrap().game.unwrap() {
+            // argument_str.push(format!("{}/{}.jar", &self.path, &self.id));
+            argument_str.push(self.version_json.main_class.to_string());
+
+            for game_argument in version_json.arguments.clone().unwrap().game.unwrap() {
                 match game_argument {
                     Value::String(s) => {
                         argument_str.push(s)
@@ -162,19 +168,33 @@ impl GameVersion {
         }
     }
 
-    pub fn launch(self, user: UserResult) -> String {
+    pub fn launch(&self, user: UserResult) {
         let mut cp_str: String = String::default();
+        let system_os = OS.clone();
         let assets_path = self.launcher_core.assets_path.clone();
-        let natives_path = format!("{}/natives-{}", self.path.clone(), OS);
-        let libs_and_natives = self.get_libraries_and_natives();
+        let natives_path = format!("{}/natives-{}", self.path.clone(), system_os);
+        println!("{}", natives_path);
+        let libs_and_natives: Libraries = self.get_libraries_and_natives();
         for lib in libs_and_natives.libs {
             if lib.clone().downloads.is_some() && lib.clone().downloads.unwrap().artifact.path.is_some() {
-                cp_str += &format!("{assets_path}/{};", lib.clone().downloads.unwrap().artifact.path.unwrap());
+                cp_str += &format!("{assets_path}/libraries/{};", lib.clone().downloads.unwrap().artifact.path.unwrap());
             }
         }
 
+        cp_str += &format!("{}/{}.jar", self.path, self.id);
+
         for native in libs_and_natives.natives {
-            let file_path = format!("{}/libraries/{}", assets_path, lib_name_to_path(native.name));
+            let mut file_path = String::default();
+            
+            if native.natives.is_none() {
+                file_path = format!("{}/libraries/{}", assets_path, lib_name_to_path(native.name));
+            } else {
+                let natives_system = native.natives.unwrap();
+                let mut native_download_info = native.downloads.clone().unwrap().classifiers.unwrap();
+                let system_natives_class = &native_download_info.get(&natives_system[system_os]).unwrap().path;
+                file_path = format!("{}/libraries/{}", assets_path, system_natives_class.clone().unwrap())
+            }
+            
             println!("{}", file_path);
             let file = File::open(file_path).expect("Failed open file");
             let mut archive = ZipArchive::new(file).expect("Failed open Zip file");
@@ -196,17 +216,16 @@ impl GameVersion {
             }
         }
 
-        let mut argument = self.get_arguments();
-
         let mut variables: HashMap<&str, String> = HashMap::new();
-        variables.insert("classpath", cp_str);
+        // variables.insert("classpath", format!("\"{cp_str}\""));
+        variables.insert("classpath", cp_str.to_string());
         variables.insert("natives_directory", natives_path);
         variables.insert("launcher_name", "BakaXL".to_owned());
         variables.insert("launcher_version", "4.0".to_owned());
-        variables.insert("version_name", self.id);
-        variables.insert("game_directory", self.launcher_core.base_path);
+        variables.insert("version_name", self.id.clone());
+        variables.insert("game_directory", self.launcher_core.base_path.clone());
         variables.insert("assets_root", format!("{}/assets", self.launcher_core.assets_path));
-        variables.insert("assets_index_name", self.version_json.asset_index.unwrap().id);
+        variables.insert("assets_index_name", self.version_json.clone().asset_index.unwrap().id);
         variables.insert("resolution_width", "1000".to_owned());
         variables.insert("resolution_height", "900".to_owned());
         variables.insert(
@@ -250,15 +269,38 @@ impl GameVersion {
             }
         );
         
-        let replace_arg = replace_variables(&argument.join(" "), &variables);
-        replace_arg
-        /*
-        let command = match OS {
-            "windows" => {
-                Command::new("cmd")
-                    .args(&["/C", ""])
-            }
+        // let replace_arg = replace_variables(&argument.join(" "), &variables);
+        
+        let java_command = match std::env::consts::OS {
+            "linux" => "java",
+            "macos" => "/usr/bin/java",
+            "windows" => "java.exe",
+            _ => ""
         };
-         */
+
+        // let args: [&str; 2] = [&format!("-Dminecraft.client.jar={}/{}.jar", self.path.clone(), self.id.clone()) ,&replace_arg];
+
+        let mut args: Vec<_> = self.get_arguments().iter().map(|x| replace_variables(&x, &variables)).collect();
+        args.insert(0, format!("-Dminecraft.client.jar={}/{}.jar", &self.path, &self.id));
+
+        println!("### Debug: {:?}\n{:?}\n{:?}\n{:?}", &java_command, &args, &variables, self.get_arguments());
+        let output = Command::new(java_command)
+            .current_dir(&self.path)
+            .args(&args)
+            .output();
+
+            match output {
+                Ok(output) => {
+                    if output.status.success() {
+                        println!("Java program executed successfully");
+                    } else {
+                        
+                        eprintln!("Java program execution failed: {}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+                    }
+                }
+                Err(err) => {
+                    eprintln!("Failed to execute Java program: {}", err);
+                }
+            }
     }
 }
